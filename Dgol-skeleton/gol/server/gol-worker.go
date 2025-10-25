@@ -80,14 +80,22 @@ func (c *Connection) Gol(req stubs.Request, res *stubs.Response) (err error) {
 }
 
 func main() {
-	rpc.Register(&Connection{})
+	err := rpc.Register(&Connection{})
+	if err != nil {
+		fmt.Println("rpc register error:", err)
+	}
 	pAddr := flag.String("port", "8030", "Port to listen on") //specify a port
 	flag.Parse()
 	listener, err := net.Listen("tcp", ":"+*pAddr)
 	if err != nil {
 		fmt.Println(err)
 	}
-	defer listener.Close()
+	defer func(listener net.Listener) {
+		err := listener.Close()
+		if err != nil {
+			fmt.Println("listener close error:", err)
+		}
+	}(listener)
 	fmt.Printf("Listening on port %s\n", *pAddr)
 	rpc.Accept(listener)
 }

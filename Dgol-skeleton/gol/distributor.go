@@ -58,11 +58,16 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Executing}
 
 	// TODO: Execute all turns of the Game of Life.
-	client, err := rpc.Dial("tcp", "127.0.0.1:8030")
+	client, err := rpc.Dial("tcp", "3.91.52.3:8030")
 	if err != nil {
 		fmt.Println(err)
 	}
-	defer client.Close()
+	defer func(client *rpc.Client) {
+		err := client.Close()
+		if err != nil {
+			fmt.Println("Error closing client", err)
+		}
+	}(client)
 	req := stubs.Request{
 		StartWorld: currentWorld,
 		Turns:      p.Turns,
