@@ -31,6 +31,10 @@ func distributor(p Params, c distributorChannels) {
 	}
 	command := ioCommand(ioInput)
 	c.ioCommand <- command
+
+	filename := fmt.Sprintf("%dx%d", height, width)
+	//c.ioFilename <- filename
+
 	if height == 16 {
 		c.ioFilename <- "16x16"
 	} else if height == 64 {
@@ -137,9 +141,22 @@ func distributor(p Params, c distributorChannels) {
 
 	close(stop) //stops the ticker goroutine
 	// TODO: Report the final state using FinalTurnCompleteEvent.
-
 	//sends final state to events channel
 	c.events <- FinalTurnComplete{turn, res.AliveCells}
+
+	filename = fmt.Sprintf("%sx%d", filename, p.Turns)
+
+	fmt.Println("turns:", p.Turns)
+	fmt.Println("filename: ", filename)
+	c.ioCommand <- ioOutput
+	c.ioFilename <- filename
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			c.ioOutput <- res.FinalWorld[y][x]
+		}
+	}
+
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
