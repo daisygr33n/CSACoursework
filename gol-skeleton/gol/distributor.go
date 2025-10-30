@@ -1,6 +1,8 @@
 package gol
 
 import (
+	"fmt"
+
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
@@ -49,27 +51,23 @@ func nextState(currentWorld [][]byte, startY, endY, height, width int, skipRow b
 	for i := range nextWorld {
 		nextWorld[i] = make([]byte, width)
 	}
-	temp := startY
-	if skipRow {
-		temp = temp + 1
-	}
-	tempY := 0
+	indexNextWorld := 0
 	for y := startY; y < endY; y++ {
 		for x := 0; x < width; x++ {
 			neighbours := calculateAliveNeighbours(currentWorld, height, width, x, y)
 			if currentWorld[y][x] == 255 {
 				if neighbours < 2 || neighbours > 3 {
-					nextWorld[tempY][x] = 0
+					nextWorld[indexNextWorld][x] = 0
 				} else {
-					nextWorld[tempY][x] = 255
+					nextWorld[indexNextWorld][x] = 255
 				}
 			} else if neighbours == 3 {
-				nextWorld[tempY][x] = 255
+				nextWorld[indexNextWorld][x] = 255
 			} else {
-				nextWorld[tempY][x] = 0
+				nextWorld[indexNextWorld][x] = 0
 			}
 		}
-		tempY++
+		indexNextWorld++
 	}
 	return nextWorld
 }
@@ -101,17 +99,9 @@ func distributor(p Params, c distributorChannels) {
 	}
 	command := ioCommand(ioInput)
 	c.ioCommand <- command
-	if height == 16 {
-		c.ioFilename <- "16x16"
-	} else if height == 64 {
-		c.ioFilename <- "64x64"
-	} else if height == 128 {
-		c.ioFilename <- "128x128"
-	} else if height == 256 {
-		c.ioFilename <- "256x256"
-	} else {
-		c.ioFilename <- "512x512"
-	}
+	filename := fmt.Sprintf("%dx%d", p.ImageWidth, p.ImageHeight)
+
+	c.ioFilename <- filename
 
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
@@ -159,6 +149,15 @@ func distributor(p Params, c distributorChannels) {
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 	c.events <- FinalTurnComplete{turn, calculateAliveCells(currentWorld, 0, height, width)}
 
+	filename = fmt.Sprintf("%sx%d", filename, p.Turns)
+	c.ioCommand <- ioOutput
+	c.ioFilename <- filename
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			c.ioOutput <- currentWorld[y][x]
+		}
+	}
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
