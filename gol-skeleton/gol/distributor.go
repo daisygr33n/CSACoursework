@@ -2,6 +2,8 @@ package gol
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -14,6 +16,11 @@ type distributorChannels struct {
 	ioOutput   chan<- uint8     // send
 	ioInput    <-chan uint8     // receive
 }
+
+var (
+	aliveCount int
+	mu         sync.Mutex
+)
 
 func calculateAliveNeighbours(world [][]byte, height, width, x, y int) int {
 	count := 0
@@ -46,7 +53,7 @@ func calculateAliveCells(world [][]byte, startY, endY, width int) []util.Cell {
 	return alive
 }
 
-func nextState(currentWorld [][]byte, startY, endY, height, width int, skipRow bool) [][]byte {
+func nextState(currentWorld [][]byte, startY, endY, height, width int) [][]byte {
 	nextWorld := make([][]byte, endY-startY) // Initialises 2D slice with dimensions of the image
 	for i := range nextWorld {
 		nextWorld[i] = make([]byte, width)
@@ -72,8 +79,8 @@ func nextState(currentWorld [][]byte, startY, endY, height, width int, skipRow b
 	return nextWorld
 }
 
-func workerNextState(currentWorld [][]byte, width, height, startY, endY int, out chan<- [][]byte, skipRow bool) {
-	chunk := nextState(currentWorld, startY, endY, height, width, skipRow)
+func workerNextState(currentWorld [][]byte, width, height, startY, endY int, out chan<- [][]byte) {
+	chunk := nextState(currentWorld, startY, endY, height, width)
 	out <- chunk
 }
 
@@ -113,8 +120,29 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
+	mu.Lock()
+	aliveCount = len(calculateAliveCells(currentWorld, 0, width, height))
+	mu.Unlock()
+
 	turn := 0
 	c.events <- StateChange{turn, Executing}
+
+	ok := make(chan bool)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				c.events <- AliveCellsCount{turn, aliveCount}
+				mu.Unlock()
+			case <-ok:
+				return
+			}
+
+		}
+	}()
 
 	outChannel := make([]chan [][]byte, threads)
 	for i := range outChannel {
@@ -122,11 +150,10 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	// TODO: Execute all turns of the Game of Life.
-	for rounds := 0; rounds < p.Turns; rounds++ {
+	for turn = 0; turn < p.Turns; turn++ {
 		newWorld := make([][]byte, 0, height)
 
 		for i := 0; i < threads; i++ {
-			skipRow := false
 			startY := i * rows
 			endY := (i + 1) * rows
 
@@ -134,16 +161,16 @@ func distributor(p Params, c distributorChannels) {
 				endY = height
 			}
 
-			if startY > 0 {
-				skipRow = true
-			}
-			go workerNextState(currentWorld, width, height, startY, endY, outChannel[i], skipRow)
+			go workerNextState(currentWorld, width, height, startY, endY, outChannel[i])
 		}
 		for i := 0; i < threads; i++ {
 			chunk := <-outChannel[i]
 			newWorld = append(newWorld, chunk...)
 		}
 		currentWorld = newWorld
+		mu.Lock()
+		aliveCount = len(calculateAliveCells(currentWorld, 0, height, width))
+		mu.Unlock()
 	}
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
