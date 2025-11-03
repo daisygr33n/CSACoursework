@@ -57,11 +57,12 @@ func calculateAliveCells(world [][]byte, startY, endY, width int) []util.Cell {
 	return alive
 }
 
-func nextState(currentWorld [][]byte, startY, endY, height, width int) [][]byte {
+func nextState(c distributorChannels, currentWorld [][]byte, startY, endY, height, width, turn int) [][]byte {
 	nextWorld := make([][]byte, endY-startY) // Initialises 2D slice with dimensions of the image
 	for i := range nextWorld {
 		nextWorld[i] = make([]byte, width)
 	}
+	var flipped []util.Cell
 	indexNextWorld := 0
 	for y := startY; y < endY; y++ {
 		for x := 0; x < width; x++ {
@@ -69,22 +70,25 @@ func nextState(currentWorld [][]byte, startY, endY, height, width int) [][]byte 
 			if currentWorld[y][x] == 255 {
 				if neighbours < 2 || neighbours > 3 {
 					nextWorld[indexNextWorld][x] = 0
+					flipped = append(flipped, util.Cell{X: x, Y: y})
 				} else {
 					nextWorld[indexNextWorld][x] = 255
 				}
 			} else if neighbours == 3 {
 				nextWorld[indexNextWorld][x] = 255
+				flipped = append(flipped, util.Cell{X: x, Y: y})
 			} else {
 				nextWorld[indexNextWorld][x] = 0
 			}
 		}
 		indexNextWorld++
 	}
+	c.events <- CellsFlipped{turn, flipped}
 	return nextWorld
 }
 
-func workerNextState(currentWorld [][]byte, width, height, startY, endY int, out chan<- [][]byte) {
-	chunk := nextState(currentWorld, startY, endY, height, width)
+func workerNextState(c distributorChannels, currentWorld [][]byte, width, height, startY, endY, turn int, out chan<- [][]byte) {
+	chunk := nextState(c, currentWorld, startY, endY, height, width, turn)
 	out <- chunk
 }
 
@@ -154,6 +158,16 @@ func terminateGame(c distributorChannels, filename string, turn, height, width i
 	c.events <- StateChange{turn, Quitting}
 }
 
+func sendFlippedCells(c distributorChannels, currentWorld [][]byte, turn, height, width int) {
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if currentWorld[y][x] == 255 {
+				c.events <- CellFlipped{turn, util.Cell{X: x, Y: y}}
+			}
+		}
+	}
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
 
@@ -190,6 +204,8 @@ func distributor(p Params, c distributorChannels) {
 	mu.Unlock()
 
 	turn := 0
+	sendFlippedCells(c, currentWorld, turn, height, width)
+
 	c.events <- StateChange{turn, Executing}
 
 	ok := make(chan bool)
@@ -261,7 +277,7 @@ loopTurns:
 				endY = height
 			}
 
-			go workerNextState(currentWorld, width, height, startY, endY, outChannel[i])
+			go workerNextState(c, currentWorld, width, height, startY, endY, turn, outChannel[i])
 		}
 		for i := 0; i < threads; i++ {
 			chunk := <-outChannel[i]
@@ -271,6 +287,7 @@ loopTurns:
 		mu.Lock()
 		aliveCount = len(calculateAliveCells(currentWorld, 0, height, width))
 		mu.Unlock()
+		c.events <- TurnComplete{turn}
 	}
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
