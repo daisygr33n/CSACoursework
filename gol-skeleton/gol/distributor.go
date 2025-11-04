@@ -20,6 +20,7 @@ type distributorChannels struct {
 
 var (
 	aliveCount int
+	turn       int
 	paused     = false
 	save       = false
 	terminate  = false
@@ -201,12 +202,12 @@ func distributor(p Params, c distributorChannels) {
 
 	mu.Lock()
 	aliveCount = len(calculateAliveCells(currentWorld, 0, width, height))
-	mu.Unlock()
 
-	turn := 0
+	turn = 0
 	sendFlippedCells(c, currentWorld, turn, height, width)
 
 	c.events <- StateChange{turn, Executing}
+	mu.Unlock()
 
 	ok := make(chan bool)
 	ticker := time.NewTicker(2 * time.Second)
@@ -216,6 +217,11 @@ func distributor(p Params, c distributorChannels) {
 			select {
 			case <-ticker.C:
 				mu.Lock()
+				if turn == p.Turns || terminate {
+					terminate = false
+					mu.Unlock()
+					return
+				}
 				c.events <- AliveCellsCount{turn, aliveCount}
 				mu.Unlock()
 			case <-ok:
@@ -235,37 +241,56 @@ func distributor(p Params, c distributorChannels) {
 
 	// TODO: Execute all turns of the Game of Life.
 loopTurns:
-	for turn = 0; turn < p.Turns; turn++ {
+	for round := 0; round < p.Turns; round++ {
 		newWorld := make([][]byte, 0, height)
 
-		if paused {
-			c.events <- StateChange{turn, Paused}
+		mu.Lock()
+		localPaused := paused
+		localSave := save
+		localTerminate := terminate
+		mu.Unlock()
+
+		if localPaused {
+			c.events <- StateChange{round, Paused}
 		loopPaused:
 			for {
 				select {
 				case keepPaused := <-pausedChannel:
 					if !keepPaused {
-						c.events <- StateChange{turn, Executing}
+						c.events <- StateChange{round, Executing}
 						break loopPaused
 					}
-					if save {
-						saveWorld(c, filename, turn, height, width, currentWorld)
+					mu.Lock()
+					localSave = save
+					mu.Unlock()
+					if localSave {
+						saveWorld(c, filename, round, height, width, currentWorld)
 					}
-
-					if terminate {
-						terminateGame(c, filename, turn, height, width, currentWorld)
+					mu.Lock()
+					localTerminate = terminate
+					mu.Unlock()
+					if localTerminate {
+						terminateGame(c, filename, round, height, width, currentWorld)
 						break loopTurns
 					}
 				}
+				mu.Lock()
+				localPaused = paused
+				mu.Unlock()
 			}
 		}
+		mu.Lock()
+		localPaused = paused
+		localSave = save
+		localTerminate = terminate
+		mu.Unlock()
 
-		if save {
-			saveWorld(c, filename, turn, height, width, currentWorld)
+		if localSave {
+			saveWorld(c, filename, round, height, width, currentWorld)
 		}
 
-		if terminate {
-			terminateGame(c, filename, turn, height, width, currentWorld)
+		if localTerminate {
+			terminateGame(c, filename, round, height, width, currentWorld)
 			break loopTurns
 		}
 
@@ -277,7 +302,7 @@ loopTurns:
 				endY = height
 			}
 
-			go workerNextState(c, currentWorld, width, height, startY, endY, turn, outChannel[i])
+			go workerNextState(c, currentWorld, width, height, startY, endY, round, outChannel[i])
 		}
 		for i := 0; i < threads; i++ {
 			chunk := <-outChannel[i]
@@ -285,24 +310,23 @@ loopTurns:
 		}
 		currentWorld = newWorld
 		mu.Lock()
+		turn++
 		aliveCount = len(calculateAliveCells(currentWorld, 0, height, width))
-		mu.Unlock()
 		c.events <- TurnComplete{turn}
+		mu.Unlock()
 	}
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
-
+	mu.Lock()
+	ticker.Stop()
 	if !terminate {
 		c.events <- FinalTurnComplete{turn, calculateAliveCells(currentWorld, 0, height, width)}
 		saveImage(c, filename, p.Turns, height, width, currentWorld)
 		c.events <- StateChange{turn, Quitting}
 	}
-	ticker.Stop()
 
-	mu.Lock()
 	terminate = false
-	mu.Unlock()
-
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
+	mu.Unlock()
 }
