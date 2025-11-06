@@ -4,6 +4,8 @@ import "uk.ac.bris.cs/gameoflife/util"
 
 var ExecGolMethod = "Connection.GolMethod"
 var AliveCellsMethod = "Connection.AliveCellsMethod"
+var SaveWorld = "Connection.SaveWorld"
+var TerminateWorld = "Connection.TerminateWorld"
 
 type Response struct {
 	FinalWorld  [][]byte

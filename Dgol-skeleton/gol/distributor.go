@@ -3,6 +3,7 @@ package gol
 import (
 	"fmt"
 	"net/rpc"
+	"sync"
 	"time"
 
 	//"uk.ac.bris.cs/gameoflife/util"
@@ -17,6 +18,82 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
+	ioKeyPress <-chan rune
+}
+
+var (
+	aliveCount int
+	turn       int
+	paused     = false
+	save       = false
+	terminate  = false
+	mu         sync.Mutex
+)
+
+func checkKeyPress(c distributorChannels, pausedChannel chan<- bool, filename string, height, width int) {
+	for keyPress := range c.ioKeyPress {
+		switch keyPress {
+		case 'p':
+			/*mu.Lock()
+			if paused {
+				paused = false
+				pausedChannel <- false
+			} else {
+				paused = true
+				pausedChannel <- true
+			}
+			mu.Unlock()*/
+		case 's':
+			/*if paused {
+				pausedChannel <- true
+			}*/
+			var res stubs.Response
+			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+			req := stubs.Request{}
+			err = clientTemp.Call(stubs.SaveWorld, req, &res)
+			if err != nil {
+				fmt.Println("error:", err)
+			}
+			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
+			saveWorld(res, filename, c, height, width)
+
+		case 'q':
+			/*if paused {
+				pausedChannel <- true
+			}
+			mu.Lock()
+			terminate = true
+			mu.Unlock()
+			ticker.Stop()*/
+			var res stubs.Response
+			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+			req := stubs.Request{}
+			err = clientTemp.Call(stubs.TerminateWorld, req, &res)
+			if err != nil {
+				fmt.Println("error:", err)
+			}
+			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
+			saveWorld(res, filename, c, height, width)
+			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
+			c.events <- StateChange{res.CurrentTurn, Quitting}
+
+		}
+	}
+}
+
+func saveWorld(res stubs.Response, filename string, c distributorChannels, height, width int) {
+
+	c.ioCommand <- ioOutput
+	c.ioFilename <- filename
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			c.ioOutput <- res.FinalWorld[y][x]
+		}
+	}
+	c.ioCommand <- ioCheckIdle
+	<-c.ioIdle
+	c.events <- ImageOutputComplete{res.CurrentTurn, filename}
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -33,20 +110,8 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- command
 
 	filename := fmt.Sprintf("%dx%d", height, width)
-	//c.ioFilename <- filename
 
-	if height == 16 {
-		c.ioFilename <- "16x16"
-	} else if height == 64 {
-		c.ioFilename <- "64x64"
-	} else if height == 128 {
-		c.ioFilename <- "128x128"
-	} else if height == 256 {
-		c.ioFilename <- "256x256"
-	} else {
-		c.ioFilename <- "512x512"
-	}
-	fmt.Println("filename received")
+	c.ioFilename <- filename
 
 	//reads each byte for initial world from IOinput channel
 	for y := 0; y < height; y++ {
@@ -59,6 +124,8 @@ func distributor(p Params, c distributorChannels) {
 			currentWorld[y][x] = b
 		}
 	}
+	pausedChannel := make(chan bool, 1)
+	go checkKeyPress(c, pausedChannel, filename, height, width)
 
 	turn := 0
 	c.events <- StateChange{turn, Executing}

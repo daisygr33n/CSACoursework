@@ -18,6 +18,12 @@ type Connection struct {
 	mu          sync.Mutex  //mutex lock to protect critical section (reading and writing to alivecells)
 }
 
+var (
+	globalWorld [][]byte
+	terminate   = false
+	mu          sync.Mutex
+)
+
 // helper function to calculate alive cells surrounding the current cell
 func calculateAliveNeighbours(world [][]byte, dimensions int, x, y int) int {
 	count := 0
@@ -52,12 +58,39 @@ func calculateAliveCells(world [][]byte, height int, width int) []util.Cell {
 	return alive
 }
 
+func (c *Connection) SaveWorld(request stubs.Request, res *stubs.Response) (err error) {
+	c.mu.Lock()
+	mu.Lock()
+	res.FinalWorld = globalWorld
+	res.AliveCells = c.aliveCells
+	res.CurrentTurn = c.currentTurn
+	c.mu.Unlock()
+	mu.Unlock()
+	return
+}
+
+func (c *Connection) TerminateWorld(request stubs.Request, res *stubs.Response) (err error) {
+	mu.Lock()
+	terminate = true
+	c.mu.Lock()
+	res.FinalWorld = globalWorld
+	res.AliveCells = c.aliveCells
+	res.CurrentTurn = c.currentTurn
+	c.mu.Unlock()
+	mu.Unlock()
+	return
+}
+
 // execytes gol for specified number of turns
 func (c *Connection) GolMethod(req stubs.Request, res *stubs.Response) (err error) {
 
 	currentWorld := req.StartWorld
 	height := req.Height
 	width := req.Width
+
+	mu.Lock()
+	globalWorld = currentWorld
+	mu.Unlock()
 
 	//computes alive cells for starting world
 	alive := calculateAliveCells(currentWorld, height, width)
@@ -68,7 +101,16 @@ func (c *Connection) GolMethod(req stubs.Request, res *stubs.Response) (err erro
 	c.mu.Unlock()                                                        //unlock lock after finishing updating alive cells
 
 	//main loop computing GOL
+loopTurns:
 	for rounds := 0; rounds < req.Turns; rounds++ { //loops for each turn in p.turns
+
+		mu.Lock()
+		if terminate {
+			mu.Unlock()
+			break loopTurns
+		}
+		mu.Unlock()
+
 		nextWorld := make([][]byte, height) // Initialises 2D slice with dimensions of the image
 		for i := range nextWorld {
 			nextWorld[i] = make([]byte, width)
@@ -91,6 +133,9 @@ func (c *Connection) GolMethod(req stubs.Request, res *stubs.Response) (err erro
 			}
 		}
 		currentWorld = nextWorld //advance to next world
+		mu.Lock()
+		globalWorld = currentWorld
+		mu.Unlock()
 
 		//update alive cells and current turn
 		alive := calculateAliveCells(currentWorld, height, width)
@@ -102,9 +147,15 @@ func (c *Connection) GolMethod(req stubs.Request, res *stubs.Response) (err erro
 		c.mu.Unlock() //unlock after finishing editing critical sections
 	}
 	//send the response back to client
-	res.FinalWorld = currentWorld
-	res.CurrentTurn = req.Turns
+	c.mu.Lock()
+	mu.Lock()
+	res.FinalWorld = globalWorld
+	res.CurrentTurn = c.currentTurn
 	res.AliveCells = c.aliveCells
+	terminate = false
+	mu.Unlock()
+	c.mu.Unlock()
+	fmt.Println("returning from simulation")
 	return
 }
 
