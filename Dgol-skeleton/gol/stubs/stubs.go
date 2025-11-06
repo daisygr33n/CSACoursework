@@ -6,6 +6,7 @@ var ExecGolMethod = "Connection.GolMethod"
 var AliveCellsMethod = "Connection.AliveCellsMethod"
 var SaveWorld = "Connection.SaveWorld"
 var TerminateWorld = "Connection.TerminateWorld"
+var PauseWorld = "Connection.PauseWorld"
 
 type Response struct {
 	FinalWorld  [][]byte

@@ -22,31 +22,37 @@ type distributorChannels struct {
 }
 
 var (
-	aliveCount int
-	turn       int
-	paused     = false
-	save       = false
-	terminate  = false
-	mu         sync.Mutex
+	paused = false
+	mu     sync.Mutex
 )
 
-func checkKeyPress(c distributorChannels, pausedChannel chan<- bool, filename string, height, width int) {
+func checkKeyPress(c distributorChannels, totalTurns int, filename string, height, width int) {
 	for keyPress := range c.ioKeyPress {
 		switch keyPress {
 		case 'p':
-			/*mu.Lock()
+			mu.Lock()
 			if paused {
 				paused = false
-				pausedChannel <- false
 			} else {
 				paused = true
-				pausedChannel <- true
 			}
-			mu.Unlock()*/
+			mu.Unlock()
+
+			var res stubs.Response
+			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+			req := stubs.Request{}
+			err = clientTemp.Call(stubs.PauseWorld, req, &res)
+			if err != nil {
+				fmt.Println("error:", err)
+			}
+
+			if paused {
+				c.events <- StateChange{res.CurrentTurn, Paused}
+			} else {
+				c.events <- StateChange{res.CurrentTurn, Executing}
+			}
+
 		case 's':
-			/*if paused {
-				pausedChannel <- true
-			}*/
 			var res stubs.Response
 			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
 			req := stubs.Request{}
@@ -58,13 +64,6 @@ func checkKeyPress(c distributorChannels, pausedChannel chan<- bool, filename st
 			saveWorld(res, filename, c, height, width)
 
 		case 'q':
-			/*if paused {
-				pausedChannel <- true
-			}
-			mu.Lock()
-			terminate = true
-			mu.Unlock()
-			ticker.Stop()*/
 			var res stubs.Response
 			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
 			req := stubs.Request{}
@@ -73,7 +72,8 @@ func checkKeyPress(c distributorChannels, pausedChannel chan<- bool, filename st
 				fmt.Println("error:", err)
 			}
 			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
-			saveWorld(res, filename, c, height, width)
+			go saveWorld(res, filename, c, height, width)
+
 			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
 			c.events <- StateChange{res.CurrentTurn, Quitting}
 
@@ -113,7 +113,7 @@ func distributor(p Params, c distributorChannels) {
 
 	c.ioFilename <- filename
 
-	//reads each byte for initial world from IOinput channel
+	//reads each byte for initial world from IO input channel
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			b, channelOpen := <-c.ioInput
@@ -124,8 +124,7 @@ func distributor(p Params, c distributorChannels) {
 			currentWorld[y][x] = b
 		}
 	}
-	pausedChannel := make(chan bool, 1)
-	go checkKeyPress(c, pausedChannel, filename, height, width)
+	go checkKeyPress(c, p.Turns, filename, height, width)
 
 	turn := 0
 	c.events <- StateChange{turn, Executing}
@@ -173,7 +172,7 @@ func distributor(p Params, c distributorChannels) {
 			select {
 			case <-ticker.C:
 				//every two seconds, ask server to report alive cells
-				//create a new response struct to store the alivecells and currentturn from the method
+				//create a new response struct to store the aliveCells and currentTurn from the method
 				var AliveCellsRes stubs.Response
 				//Call the AliveCellsMethod in server with request and response
 				err := aliveCellsReport.Call(stubs.AliveCellsMethod, req, &AliveCellsRes)
@@ -182,11 +181,11 @@ func distributor(p Params, c distributorChannels) {
 					continue
 				}
 
-				//debug print statements to see if alivecells is being updated
+				//debug print statements to see if aliveCells is being updated
 				fmt.Println("alive cells after rpc call: ", len(AliveCellsRes.AliveCells))
 				fmt.Println("current turn: ", AliveCellsRes.CurrentTurn)
 
-				//update c.events channel with the alivecells count
+				//update c.events channel with the aliveCells count
 				c.events <- AliveCellsCount{
 					CompletedTurns: AliveCellsRes.CurrentTurn,
 					CellsCount:     len(AliveCellsRes.AliveCells),

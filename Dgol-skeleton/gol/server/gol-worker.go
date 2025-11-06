@@ -21,6 +21,7 @@ type Connection struct {
 var (
 	globalWorld [][]byte
 	terminate   = false
+	paused      = false
 	mu          sync.Mutex
 )
 
@@ -81,7 +82,25 @@ func (c *Connection) TerminateWorld(request stubs.Request, res *stubs.Response) 
 	return
 }
 
-// execytes gol for specified number of turns
+func (c *Connection) PauseWorld(request stubs.Request, res *stubs.Response) (err error) {
+	mu.Lock()
+
+	if paused {
+		paused = false
+	} else {
+		paused = true
+	}
+
+	c.mu.Lock()
+	res.FinalWorld = globalWorld
+	res.AliveCells = c.aliveCells
+	res.CurrentTurn = c.currentTurn
+	c.mu.Unlock()
+	mu.Unlock()
+	return
+}
+
+// GolMethod executes gol for specified number of turns
 func (c *Connection) GolMethod(req stubs.Request, res *stubs.Response) (err error) {
 
 	currentWorld := req.StartWorld
@@ -110,6 +129,22 @@ loopTurns:
 			break loopTurns
 		}
 		mu.Unlock()
+
+		mu.Lock()
+		localPaused := paused
+		mu.Unlock()
+
+		if localPaused {
+		loopPaused:
+			for {
+				mu.Lock()
+				if !paused {
+					mu.Unlock()
+					break loopPaused
+				}
+				mu.Unlock()
+			}
+		}
 
 		nextWorld := make([][]byte, height) // Initialises 2D slice with dimensions of the image
 		for i := range nextWorld {
