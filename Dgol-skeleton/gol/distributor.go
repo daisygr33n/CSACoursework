@@ -72,6 +72,20 @@ func checkKeyPress(c distributorChannels, totalTurns int, filename string, heigh
 				fmt.Println("error:", err)
 			}
 			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
+			saveWorld(res, filename, c, height, width)
+
+			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
+			c.events <- StateChange{res.CurrentTurn, Quitting}
+
+		case 'k':
+			var res stubs.Response
+			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+			req := stubs.Request{}
+			err = clientTemp.Call(stubs.TerminateClient, req, &res)
+			if err != nil {
+				fmt.Println("error:", err)
+			}
+			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
 			go saveWorld(res, filename, c, height, width)
 
 			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}

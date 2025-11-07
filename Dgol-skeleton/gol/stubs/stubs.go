@@ -7,6 +7,7 @@ var AliveCellsMethod = "Connection.AliveCellsMethod"
 var SaveWorld = "Connection.SaveWorld"
 var TerminateWorld = "Connection.TerminateWorld"
 var PauseWorld = "Connection.PauseWorld"
+var TerminateClient = "Connection.TerminateClient"
 
 type Response struct {
 	FinalWorld  [][]byte

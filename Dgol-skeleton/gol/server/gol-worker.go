@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"net/rpc"
 	"sync"
@@ -24,6 +25,9 @@ var (
 	paused      = false
 	mu          sync.Mutex
 )
+
+var shutDown = make(chan bool)
+var golFinished = make(chan bool)
 
 // helper function to calculate alive cells surrounding the current cell
 func calculateAliveNeighbours(world [][]byte, dimensions int, x, y int) int {
@@ -87,6 +91,7 @@ func (c *Connection) PauseWorld(request stubs.Request, res *stubs.Response) (err
 
 	if paused {
 		paused = false
+
 	} else {
 		paused = true
 	}
@@ -97,6 +102,24 @@ func (c *Connection) PauseWorld(request stubs.Request, res *stubs.Response) (err
 	res.CurrentTurn = c.currentTurn
 	c.mu.Unlock()
 	mu.Unlock()
+	return
+}
+
+func (c *Connection) TerminateClient(request stubs.Request, res *stubs.Response) (err error) {
+	mu.Lock()
+	terminate = true
+	c.mu.Lock()
+	res.FinalWorld = globalWorld
+	res.AliveCells = c.aliveCells
+	res.CurrentTurn = c.currentTurn
+	c.mu.Unlock()
+	mu.Unlock()
+
+	go func() {
+		<-golFinished
+		shutDown <- true
+	}()
+
 	return
 }
 
@@ -191,6 +214,13 @@ loopTurns:
 	mu.Unlock()
 	c.mu.Unlock()
 	fmt.Println("returning from simulation")
+
+	select {
+	case <-golFinished:
+	default:
+		close(golFinished)
+	}
+
 	return
 }
 
@@ -215,12 +245,36 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	defer func(listener net.Listener) {
+
+	defer listener.Close()
+	fmt.Printf("Listening on port %s\n", *pAddr)
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				log.Println("Accept error:", err)
+				continue
+			}
+			go rpc.ServeConn(conn)
+		}
+	}()
+
+	<-shutDown
+
+	fmt.Println("Shutting down...")
+	err1 := listener.Close()
+	if err1 != nil {
+		return
+	}
+	fmt.Println("Goodbye!")
+
+	/*defer func(listener net.Listener) {
 		err := listener.Close()
 		if err != nil {
 			fmt.Println("listener close error:", err)
 		}
 	}(listener)
 	fmt.Printf("Listening on port %s\n", *pAddr)
-	rpc.Accept(listener) //blocking call constantly accepting incoming connections
+	rpc.Accept(listener) //blocking call constantly accepting incoming connections*/
 }
