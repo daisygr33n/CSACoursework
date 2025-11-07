@@ -93,11 +93,6 @@ func workerNextState(c distributorChannels, currentWorld [][]byte, width, height
 	out <- chunk
 }
 
-func workerAliveCells(world [][]byte, startY, endY, width int, out chan<- []util.Cell) {
-	chunk := calculateAliveCells(world, startY, endY, width)
-	out <- chunk
-}
-
 func checkKeyPress(c distributorChannels, pausedChannel chan<- bool, ticker *time.Ticker) {
 	for keyPress := range c.ioKeyPress {
 		switch keyPress {
@@ -179,7 +174,7 @@ func distributor(p Params, c distributorChannels) {
 	currentWorld := make([][]byte, height) // Initialises 2D slice with dimensions of the image
 
 	threads := p.Threads
-	rows := height / threads
+	rows := height / p.Threads
 
 	for i := range currentWorld {
 		currentWorld[i] = make([]byte, width)
@@ -209,7 +204,6 @@ func distributor(p Params, c distributorChannels) {
 	c.events <- StateChange{turn, Executing}
 	mu.Unlock()
 
-	ok := make(chan bool)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	go func() {
@@ -224,8 +218,6 @@ func distributor(p Params, c distributorChannels) {
 				}
 				c.events <- AliveCellsCount{turn, aliveCount}
 				mu.Unlock()
-			case <-ok:
-				return
 			}
 
 		}
