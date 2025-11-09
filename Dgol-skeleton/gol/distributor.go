@@ -23,6 +23,7 @@ type distributorChannels struct {
 
 var (
 	paused = false
+	kPress = false
 	mu     sync.Mutex
 )
 
@@ -72,7 +73,7 @@ func checkKeyPress(c distributorChannels, totalTurns int, filename string, heigh
 				fmt.Println("error:", err)
 			}
 			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
-			saveWorld(res, filename, c, height, width)
+			go saveWorld(res, filename, c, height, width)
 
 			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
 			c.events <- StateChange{res.CurrentTurn, Quitting}
@@ -86,7 +87,10 @@ func checkKeyPress(c distributorChannels, totalTurns int, filename string, heigh
 				fmt.Println("error:", err)
 			}
 			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
-			go saveWorld(res, filename, c, height, width)
+			mu.Lock()
+			kPress = true
+			mu.Unlock()
+			//go saveWorld(res, filename, c, height, width)
 
 			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
 			c.events <- StateChange{res.CurrentTurn, Quitting}
@@ -231,11 +235,16 @@ func distributor(p Params, c distributorChannels) {
 	c.ioCommand <- ioOutput
 	c.ioFilename <- filename
 
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			c.ioOutput <- res.FinalWorld[y][x]
+	mu.Lock()
+	if !kPress {
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				c.ioOutput <- res.FinalWorld[y][x]
+			}
 		}
 	}
+	kPress = false
+	mu.Unlock()
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
