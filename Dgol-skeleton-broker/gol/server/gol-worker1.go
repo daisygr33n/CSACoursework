@@ -234,6 +234,7 @@ loopTurns:
 }*/
 
 func (c *Connection) NextStateInit(req stubs.Request, res *stubs.Response) (err error) {
+	fmt.Println("received slice")
 	res.FinalWorld = NextState(req.StartWorld, req.StartY, req.EndY, req.Height, req.Width)
 	res.AliveCells = calculateAliveCells(res.FinalWorld, req.StartY, req.EndY-req.StartY, req.Width)
 	res.CurrentTurn = req.CurrentTurn

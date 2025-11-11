@@ -136,11 +136,11 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 
 	height := req.Height
 	width := req.Width
-	threads := req.Threads
-	rows := height / threads
+	threads := 4
+	rows := height / 4
 
-	responses := make([]*stubs.Response, threads)
-	done := make(chan *rpc.Call, threads)
+	responses := make([]*stubs.Response, 4)
+	done := make(chan *rpc.Call, 4)
 
 	currentWorld := req.StartWorld
 	mu.Lock()
@@ -155,15 +155,38 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 	c.aliveCells = aliveCells
 	c.mu.Unlock()
 
-	clients := make([]*rpc.Client, threads)
+	clients := make([]*rpc.Client, 4)
 
-	for i := 0; i < threads; i++ {
-		client, err := rpc.Dial("tcp", "localhost:8040")
+	/*for i := 0; i < threads; i++ {
+		client, err := rpc.Dial("tcp", "8040")
 		if err != nil {
 			fmt.Println(err)
 		}
 		clients[i] = client
+	}*/
+	client0, err := rpc.Dial("tcp", "localhost:8050")
+	if err != nil {
+		fmt.Println(err)
 	}
+	clients[0] = client0
+
+	client1, err := rpc.Dial("tcp", "localhost:8060")
+	if err != nil {
+		fmt.Println(err)
+	}
+	clients[1] = client1
+
+	client2, err := rpc.Dial("tcp", "localhost:8070")
+	if err != nil {
+		fmt.Println(err)
+	}
+	clients[2] = client2
+
+	client3, err := rpc.Dial("tcp", "localhost:8080")
+	if err != nil {
+		fmt.Println(err)
+	}
+	clients[3] = client3
 
 loopTurns:
 	for round := 0; round < req.Turns; round++ {
@@ -193,7 +216,7 @@ loopTurns:
 
 		calls := make([]*rpc.Call, threads)
 
-		for i := 0; i < threads; i++ {
+		for i := 0; i < 4; i++ {
 
 			startY := i * rows
 			endY := (i + 1) * rows
@@ -219,13 +242,13 @@ loopTurns:
 			calls[i] = clients[i].Go(stubs.NextState, newReq, &resTemp, done)
 		}
 
-		for i := 0; i < threads; i++ {
+		for i := 0; i < 4; i++ {
 			<-calls[i].Done
 		}
 
 		aliveCells = nil
 		var nextWorld [][]byte
-		for i := 0; i < threads; i++ {
+		for i := 0; i < 4; i++ {
 			nextWorld = append(nextWorld, responses[i].FinalWorld...)
 			aliveCells = append(aliveCells, responses[i].AliveCells...)
 		}
