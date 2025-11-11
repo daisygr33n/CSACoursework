@@ -1,13 +1,12 @@
 import re
-import pandas as pd
+import pandas as pd 
 import matplotlib.pyplot as plt
-from striprtf.striprtf import rtf_to_text  # only if your file is .rtf
+from striprtf.striprtf import rtf_to_text 
 
-# ---- read your benchmark file ----
-# change this to your filename
-filename = "benchD.rtf"
+#change this to filename
+filename = "/Users/daisygreen/GoProjects/GoProjects/python/bmLiveSdl.rtf"
 
-# if it’s an RTF file, extract plain text
+#if it’s an RTF file extract plain text
 if filename.endswith(".rtf"):
     with open(filename, "r", encoding="utf-8") as f:
         text = rtf_to_text(f.read())
@@ -15,18 +14,14 @@ else:
     with open(filename, "r", encoding="utf-8") as f:
         text = f.read()
 
-# ---- extract benchmark data ----
 pattern = re.compile(r"BenchmarkGol/\S+-(\d+)-\d+\s+\d+\s+(\d+)\s+ns/op")
 data = [(int(t), int(ns)) for t, ns in re.findall(pattern, text)]
 
-# ---- convert to DataFrame ----
 df = pd.DataFrame(data, columns=["Threads", "ns_per_op"]).sort_values("Threads")
 df["ms_per_op"] = df["ns_per_op"] / 1e6
 
-# ---- display table ----
 print(df)
 
-# ---- plot graph ----
 plt.figure(figsize=(8, 5))
 plt.bar(df["Threads"], df["ms_per_op"], color="skyblue", edgecolor="black")
 
