@@ -95,7 +95,7 @@ func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Res
 	c.mu.Unlock()
 	mu.Unlock()
 
-	client, err := rpc.Dial("tcp", "localhost:8040")
+	client, err := rpc.Dial("tcp", "3.91.7.217:8040")
 	if err != nil {
 		fmt.Println(err)
 	}
