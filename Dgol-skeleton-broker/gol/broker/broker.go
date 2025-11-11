@@ -23,13 +23,14 @@ type ConnectionBroker struct {
 }
 
 var (
-	globalWorld [][]byte
-	terminate   = false
-	paused      = false
-	shutDown    = make(chan bool)
-	golFinished = make(chan bool)
-	clients     = make([]*rpc.Client, 4)
-	mu          sync.Mutex
+	globalWorld   [][]byte
+	terminate     = false
+	paused        = false
+	shutDown      = make(chan bool)
+	golFinished   = make(chan bool)
+	clients       = make([]*rpc.Client, 4)
+	mu            sync.Mutex
+	initialClient *rpc.Client
 )
 
 //var shutDown = make(chan bool)
@@ -108,6 +109,7 @@ func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Res
 
 	var req stubs.Request
 	var resTemp stubs.Response
+	initialClient.Go(stubs.TerminateWorker, req, &resTemp, nil)
 	clients[0].Go(stubs.TerminateWorker, req, &resTemp, nil)
 	clients[1].Go(stubs.TerminateWorker, req, &resTemp, nil)
 	clients[2].Go(stubs.TerminateWorker, req, &resTemp, nil)
@@ -133,6 +135,13 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 			fmt.Println("error closing client: ", err)
 		}
 	}(client)
+
+	mu.Lock()
+	initialClient, err = rpc.Dial("tcp", "3.91.7.217:8040")
+	if err != nil {
+		fmt.Println(err)
+	}
+	mu.Unlock()
 
 	c.mu.Lock()
 	c.currentTurn = 0
