@@ -28,6 +28,7 @@ var (
 	paused      = false
 	shutDown    = make(chan bool)
 	golFinished = make(chan bool)
+	clients     = make([]*rpc.Client, 4)
 	mu          sync.Mutex
 )
 
@@ -107,7 +108,10 @@ func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Res
 
 	var req stubs.Request
 	var resTemp stubs.Response
-	client.Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clients[0].Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clients[1].Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clients[2].Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clients[3].Go(stubs.TerminateWorker, req, &resTemp, nil)
 
 	go func() {
 		<-golFinished
@@ -150,12 +154,13 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 	var aliveCells []util.Cell
 	client.Call(stubs.AliveCells, req, &res)
 	aliveCells = res.AliveCells
+	//client.Go(stubs.TerminateWorker, req, &res, nil)
 
 	c.mu.Lock()
 	c.aliveCells = aliveCells
 	c.mu.Unlock()
 
-	clients := make([]*rpc.Client, 4)
+	//clients := make([]*rpc.Client, 4)
 
 	/*for i := 0; i < threads; i++ {
 		client, err := rpc.Dial("tcp", "8040")
@@ -164,29 +169,31 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 		}
 		clients[i] = client
 	}*/
-	client0, err := rpc.Dial("tcp", "localhost:8050")
+	mu.Lock()
+	client0, err := rpc.Dial("tcp", "54.174.193.121:8050")
 	if err != nil {
 		fmt.Println(err)
 	}
 	clients[0] = client0
 
-	client1, err := rpc.Dial("tcp", "localhost:8060")
+	client1, err := rpc.Dial("tcp", "98.80.119.172:8060")
 	if err != nil {
 		fmt.Println(err)
 	}
 	clients[1] = client1
 
-	client2, err := rpc.Dial("tcp", "localhost:8070")
+	client2, err := rpc.Dial("tcp", "34.201.120.217:8070")
 	if err != nil {
 		fmt.Println(err)
 	}
 	clients[2] = client2
 
-	client3, err := rpc.Dial("tcp", "localhost:8080")
+	client3, err := rpc.Dial("tcp", "54.226.151.190:8080")
 	if err != nil {
 		fmt.Println(err)
 	}
 	clients[3] = client3
+	mu.Unlock()
 
 loopTurns:
 	for round := 0; round < req.Turns; round++ {
