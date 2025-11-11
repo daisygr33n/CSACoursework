@@ -122,7 +122,7 @@ func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Res
 }
 
 func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Response) (err error) {
-	client, err := rpc.Dial("tcp", "localhost:8040")
+	client, err := rpc.Dial("tcp", "3.91.7.217:8040")
 	if err != nil {
 		fmt.Println(err)
 	}
