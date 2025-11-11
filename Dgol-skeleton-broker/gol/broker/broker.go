@@ -125,7 +125,7 @@ func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Res
 }
 
 func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Response) (err error) {
-	client, err := rpc.Dial("tcp", "3.91.7.217:8040")
+	/*client, err := rpc.Dial("tcp", "3.91.7.217:8040")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -134,7 +134,7 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 		if err != nil {
 			fmt.Println("error closing client: ", err)
 		}
-	}(client)
+	}(client)*/
 
 	mu.Lock()
 	initialClient, err = rpc.Dial("tcp", "3.91.7.217:8040")
@@ -162,7 +162,10 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 	mu.Unlock()
 
 	var aliveCells []util.Cell
-	client.Call(stubs.AliveCells, req, &res)
+	err = initialClient.Call(stubs.AliveCells, req, &res)
+	if err != nil {
+		return err
+	}
 	aliveCells = res.AliveCells
 	//client.Go(stubs.TerminateWorker, req, &res, nil)
 
