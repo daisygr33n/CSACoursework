@@ -35,8 +35,22 @@ func calculateAliveNeighbours(world [][]byte, height, width, x, y int) int {
 			if dx == 0 && dy == 0 {
 				continue // skip the cell itself
 			}
-			nx := (x + dx + width) % width
-			ny := (y + dy + height) % height
+			//nx := (x + dx + width) % width
+			//ny := (y + dy + height) % height
+
+			nx := x + dx
+			if nx == width {
+				nx = 0
+			} else if nx == -1 {
+				nx = width - 1
+			}
+
+			ny := y + dy
+			if ny == height {
+				ny = 0
+			} else if ny == -1 {
+				ny = height - 1
+			}
 
 			if world[ny][nx] == 255 {
 				count++
@@ -286,15 +300,26 @@ loopTurns:
 			break loopTurns
 		}
 
+		//extraRows := height % threads
+		//startY := 0
 		for i := 0; i < threads; i++ {
+			//extra := 0
 			startY := i * rows
 			endY := (i + 1) * rows
+			//extraRows--
+
+			/*if i < extraRows {
+				extra = 1
+			}*/
+
+			//endY := startY + rows + extra
 
 			if i == threads-1 {
 				endY = height
 			}
 
 			go workerNextState(c, currentWorld, width, height, startY, endY, round, outChannel[i])
+			startY = endY
 		}
 		for i := 0; i < threads; i++ {
 			chunk := <-outChannel[i]
