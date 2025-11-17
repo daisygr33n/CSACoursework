@@ -10,6 +10,7 @@ var SaveWorld = "ConnectionBroker.SaveWorld"
 var TerminateWorld = "ConnectionBroker.TerminateWorld"
 var PauseWorld = "ConnectionBroker.PauseWorld"
 var TerminateClient = "ConnectionBroker.TerminateClient"
+var ResetMethod = "ConnectionBroker.ResetMethod"
 
 // var NewMethod = "ConnectionBroker.ExecMethod"
 var AliveCellsBrokers = "ConnectionBroker.AliveCellsMethod"

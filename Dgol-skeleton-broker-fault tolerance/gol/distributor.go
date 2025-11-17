@@ -29,74 +29,89 @@ var (
 	mu     sync.Mutex
 )
 
-func checkKeyPress(c distributorChannels, totalTurns int, filename string, height, width int) {
-	for keyPress := range c.ioKeyPress {
-		switch keyPress {
-		case 'p':
-			mu.Lock()
-			if paused {
-				paused = false
-			} else {
-				paused = true
+func checkKeyPress(c distributorChannels, totalTurns int, filename string, height, width int, stopAll chan struct{}) {
+	for {
+		select {
+		case <-stopAll:
+			return
+		case keyPress, channelOpen := <-c.ioKeyPress:
+			if !channelOpen {
+				return
 			}
-			mu.Unlock()
+			switch keyPress {
+			case 'p':
+				mu.Lock()
+				if paused {
+					paused = false
+				} else {
+					paused = true
+				}
+				mu.Unlock()
 
-			var res stubs.Response
-			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
-			req := stubs.Request{}
-			err = clientTemp.Call(stubs.PauseWorld, req, &res)
-			if err != nil {
-				fmt.Println("error:", err)
+				var res stubs.Response
+				clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+				req := stubs.Request{}
+				err = clientTemp.Call(stubs.PauseWorld, req, &res)
+				if err != nil {
+					fmt.Println("error:", err)
+				}
+
+				if paused {
+					c.events <- StateChange{res.CurrentTurn, Paused}
+				} else {
+					c.events <- StateChange{res.CurrentTurn, Executing}
+				}
+
+			case 's':
+				var res stubs.Response
+				clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+				req := stubs.Request{}
+				err = clientTemp.Call(stubs.SaveWorld, req, &res)
+				if err != nil {
+					fmt.Println("error:", err)
+				}
+				filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
+				saveWorld(res, filename, c, height, width)
+
+			case 'q':
+				var res stubs.Response
+				clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+				req := stubs.Request{}
+				err = clientTemp.Call(stubs.TerminateWorld, req, &res)
+				if err != nil {
+					fmt.Println("error:", err)
+				}
+				filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
+				saveWorld(res, filename, c, height, width)
+
+				select {
+				case <-stopAll:
+
+				default:
+					close(stopAll)
+				}
+
+				c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
+				c.events <- StateChange{res.CurrentTurn, Quitting}
+
+			case 'k':
+				var res stubs.Response
+				clientTemp, err := rpc.Dial("tcp", "localhost:8030")
+				req := stubs.Request{}
+				err = clientTemp.Call(stubs.TerminateClient, req, &res)
+				if err != nil {
+				}
+				filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
+				mu.Lock()
+				kPress = true
+				mu.Unlock()
+				//go saveWorld(res, filename, c, height, width)
+
+				c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
+				c.events <- StateChange{res.CurrentTurn, Quitting}
 			}
-
-			if paused {
-				c.events <- StateChange{res.CurrentTurn, Paused}
-			} else {
-				c.events <- StateChange{res.CurrentTurn, Executing}
-			}
-
-		case 's':
-			var res stubs.Response
-			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
-			req := stubs.Request{}
-			err = clientTemp.Call(stubs.SaveWorld, req, &res)
-			if err != nil {
-				fmt.Println("error:", err)
-			}
-			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
-			saveWorld(res, filename, c, height, width)
-
-		case 'q':
-			var res stubs.Response
-			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
-			req := stubs.Request{}
-			err = clientTemp.Call(stubs.TerminateWorld, req, &res)
-			if err != nil {
-				fmt.Println("error:", err)
-			}
-			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
-			go saveWorld(res, filename, c, height, width)
-
-			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
-			c.events <- StateChange{res.CurrentTurn, Quitting}
-
-		case 'k':
-			var res stubs.Response
-			clientTemp, err := rpc.Dial("tcp", "localhost:8030")
-			req := stubs.Request{}
-			err = clientTemp.Call(stubs.TerminateClient, req, &res)
-			if err != nil {
-				fmt.Println("error:", err)
-			}
-			filename = fmt.Sprintf("%sx%d", filename, res.CurrentTurn)
-			mu.Lock()
-			kPress = true
-			mu.Unlock()
-			//go saveWorld(res, filename, c, height, width)
-
-			c.events <- FinalTurnComplete{res.CurrentTurn, res.AliveCells}
-			c.events <- StateChange{res.CurrentTurn, Quitting}
 		}
+
 	}
 }
 
@@ -117,6 +132,13 @@ func saveWorld(res stubs.Response, filename string, c distributorChannels, heigh
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels) {
+
+	stopAll := make(chan struct{})
+
+	mu.Lock()
+	paused = false
+	kPress = false
+	mu.Unlock()
 
 	height := p.ImageHeight
 	width := p.ImageWidth
@@ -143,7 +165,7 @@ func distributor(p Params, c distributorChannels) {
 			currentWorld[y][x] = b
 		}
 	}
-	go checkKeyPress(c, p.Turns, filename, height, width)
+	go checkKeyPress(c, p.Turns, filename, height, width, stopAll)
 
 	turn := 0
 	c.events <- StateChange{turn, Executing}
@@ -165,7 +187,7 @@ func distributor(p Params, c distributorChannels) {
 	//RPC dial to report alive cells every two seconds
 	aliveCellsReport, err := rpc.Dial("tcp", "localhost:8030")
 	if err != nil {
-		fmt.Println("error connecting 2nd rpc call:", err)
+		fmt.Println("error connecting alive cells rpc call:", err)
 	}
 	defer func(aliveCellsReport *rpc.Client) {
 		err := aliveCellsReport.Close()
@@ -173,6 +195,17 @@ func distributor(p Params, c distributorChannels) {
 			fmt.Println("error closing alive cells report:", err)
 		}
 	}(aliveCellsReport)
+
+	resetClient, err := rpc.Dial("tcp", "localhost:8030")
+	if err != nil {
+		fmt.Println("error connecting reset rpc call:", err)
+	}
+	defer func(resetClient *rpc.Client) {
+		err := resetClient.Close()
+		if err != nil {
+			fmt.Println("error closing reset rpc call:", err)
+		}
+	}(resetClient)
 
 	//Create a request struct to pass to server
 	req := stubs.Request{
@@ -185,13 +218,21 @@ func distributor(p Params, c distributorChannels) {
 		Threads:    p.Threads,
 	}
 
+	var resetRes stubs.Response
+	if err := resetClient.Call(stubs.ResetMethod, req, &resetRes); err != nil {
+		fmt.Println("error calling reset rpc call:", err)
+	}
+
 	//GO function that runs constantly and sends AliveCells update to events channel every 2 seconds
-	stop := make(chan struct{}) //channel to tell when ticker stops
+	stopAlive := make(chan struct{}) //channel to tell when ticker stops
 	go func() {
+		defer close(stopAlive)
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
+			case <-stopAll:
+				return
 			case <-ticker.C:
 				//every two seconds, ask server to report alive cells
 				//create a new response struct to store the aliveCells and currentTurn from the method
@@ -212,10 +253,6 @@ func distributor(p Params, c distributorChannels) {
 					CompletedTurns: AliveCellsRes.CurrentTurn,
 					CellsCount:     len(AliveCellsRes.AliveCells),
 				}
-
-			case <-stop: //exit go routine when stop is received
-				return
-
 			}
 		}
 	}()
@@ -232,7 +269,8 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	close(stop) //stops the ticker goroutine
+	close(stopAll) //stops the ticker goroutine
+	<-stopAlive
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 	//sends final state to events channel
 	c.events <- FinalTurnComplete{turn, res.AliveCells}

@@ -79,12 +79,14 @@ func (c *Connection) TerminateWorker(request stubs.Request, res *stubs.Response)
 	c.mu.Unlock()
 	mu.Unlock()
 
-	go func() {
-		<-golFinished
-		shutDown <- true
-	}()
+	select {
+	case shutDown <- true:
 
-	return
+	default:
+
+	}
+
+	return nil
 }
 
 func (c *Connection) HeartbeatWorker(request stubs.Request, res *stubs.Heartbeat) (err error) {

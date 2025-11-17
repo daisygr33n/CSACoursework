@@ -24,13 +24,15 @@ type ConnectionBroker struct {
 }
 
 var (
-	globalWorld  [][]byte
-	terminate    = false
-	paused       = false
-	shutDown     = make(chan bool)
-	golFinished  = make(chan bool)
-	aliveWorkers = make([]bool, 4)
-	mu           sync.Mutex
+	globalWorld   [][]byte
+	terminate     = false
+	paused        = false
+	shutDown      = make(chan bool)
+	golFinished   = make(chan bool)
+	aliveWorkers  = make([]bool, 4)
+	clientsGlobal = make([]*rpc.Client, 4)
+	mu            sync.Mutex
+	initialClient *rpc.Client
 )
 
 //var shutDown = make(chan bool)
@@ -86,6 +88,20 @@ func (c *ConnectionBroker) PauseWorld(request stubs.Request, res *stubs.Response
 	return
 }
 
+func (c *ConnectionBroker) ResetMethod(request stubs.Request, res *stubs.Response) (err error) {
+	c.mu.Lock()
+	c.currentTurn = 0
+	c.aliveCells = nil
+	c.mu.Unlock()
+
+	mu.Lock()
+	globalWorld = nil
+	terminate = false
+	paused = false
+	mu.Unlock()
+	return
+}
+
 func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Response) (err error) {
 	mu.Lock()
 	terminate = true
@@ -96,25 +112,20 @@ func (c *ConnectionBroker) TerminateClient(request stubs.Request, res *stubs.Res
 	c.mu.Unlock()
 	mu.Unlock()
 
-	client, err := rpc.Dial("tcp", "localhost:8040")
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer func(client *rpc.Client) {
-		err := client.Close()
-		if err != nil {
-			fmt.Println("error closing client: ", err)
-		}
-	}(client)
-
 	var req stubs.Request
 	var resTemp stubs.Response
-	client.Go(stubs.TerminateWorker, req, &resTemp, nil)
 
-	go func() {
-		<-golFinished
-		shutDown <- true
-	}()
+	initialClient.Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clientsGlobal[0].Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clientsGlobal[1].Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clientsGlobal[2].Go(stubs.TerminateWorker, req, &resTemp, nil)
+	clientsGlobal[3].Go(stubs.TerminateWorker, req, &resTemp, nil)
+
+	select {
+	case shutDown <- true:
+
+	default:
+	}
 
 	return
 }
@@ -155,6 +166,7 @@ func replaceWorker(workerIndex int) *rpc.Client {
 	}
 	mu.Lock()
 	aliveWorkers[workerIndex] = true
+	clientsGlobal[workerIndex] = newWorker
 	mu.Unlock()
 	HeartbeatMonitor(workerIndex, newWorker)
 	fmt.Println("worker", workerIndex, "redialed")
@@ -162,16 +174,12 @@ func replaceWorker(workerIndex int) *rpc.Client {
 }
 
 func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Response) (err error) {
-	client, err := rpc.Dial("tcp", "localhost:8040")
+	mu.Lock()
+	initialClient, err = rpc.Dial("tcp", "localhost:8040")
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(err, "Failed to connect to initial server")
 	}
-	defer func(client *rpc.Client) {
-		err := client.Close()
-		if err != nil {
-			fmt.Println("error closing client: ", err)
-		}
-	}(client)
+	mu.Unlock()
 
 	c.mu.Lock()
 	c.currentTurn = 0
@@ -192,7 +200,10 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 	mu.Unlock()
 
 	var aliveCells []util.Cell
-	client.Call(stubs.AliveCells, req, &res)
+	err = initialClient.Call(stubs.AliveCells, req, &res)
+	if err != nil {
+		return err
+	}
 	aliveCells = res.AliveCells
 
 	c.mu.Lock()
@@ -201,14 +212,6 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 
 	clients := make([]*rpc.Client, 4)
 
-	/*for i := 0; i < threads; i++ {
-		client, err := rpc.Dial("tcp", "8040")
-		if err != nil {
-			fmt.Println(err)
-		}
-		clients[i] = client
-	}*/
-
 	client0, err := rpc.Dial("tcp", "localhost:8050")
 	if err != nil {
 		fmt.Println(err)
@@ -216,8 +219,10 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 		clients[0] = client0
 		mu.Lock()
 		aliveWorkers[0] = true
+		clientsGlobal[0] = client0
 		mu.Unlock()
 	}
+
 	HeartbeatMonitor(0, client0)
 
 	client1, err := rpc.Dial("tcp", "localhost:8060")
@@ -227,6 +232,7 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 		clients[1] = client1
 		mu.Lock()
 		aliveWorkers[1] = true
+		clientsGlobal[1] = client1
 		mu.Unlock()
 	}
 	HeartbeatMonitor(1, client1)
@@ -238,6 +244,7 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 		clients[2] = client2
 		mu.Lock()
 		aliveWorkers[2] = true
+		clientsGlobal[2] = client2
 		mu.Unlock()
 	}
 	HeartbeatMonitor(2, client2)
@@ -249,6 +256,7 @@ func (c *ConnectionBroker) ParallelGolMethod(req stubs.Request, res *stubs.Respo
 		clients[3] = client3
 		mu.Lock()
 		aliveWorkers[3] = true
+		clientsGlobal[3] = client3
 		mu.Unlock()
 	}
 	HeartbeatMonitor(3, client3)
@@ -385,12 +393,6 @@ loopTurns:
 	terminate = false
 	paused = false
 	mu.Unlock()
-
-	select {
-	case <-golFinished:
-	default:
-		close(golFinished)
-	}
 
 	return
 }
